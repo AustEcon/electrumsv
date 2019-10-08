@@ -283,13 +283,16 @@ def _parse_scriptSig(d, _bytes):
     d['address'] = Address.from_P2SH_hash(hash_160(redeemScript))
 
 
-def _parse_redeemScript(s):
-    dec2 = [ x for x in _script_GetOp(s) ]
-    m = dec2[0][0] - Ops.OP_1 + 1
-    n = dec2[-2][0] - Ops.OP_1 + 1
+def _extract_multisig_pattern(decoded):
+    m = decoded[0][0] - Ops.OP_1 + 1
+    n = decoded[-2][0] - Ops.OP_1 + 1
     op_m = Ops.OP_1 + m - 1
     op_n = Ops.OP_1 + n - 1
-    match_multisig = [ op_m ] + [Ops.OP_PUSHDATA4]*n + [ op_n, Ops.OP_CHECKMULTISIG ]
+    return m, n, [ op_m ] + [Ops.OP_PUSHDATA4]*n + [ op_n, Ops.OP_CHECKMULTISIG ]
+
+def _parse_redeemScript(s):
+    dec2 = [ x for x in _script_GetOp(s) ]
+    m, n, match_multisig = _extract_multisig_pattern(dec2)
     if not _match_decoded(dec2, match_multisig):
         logger.error("cannot find address in input script %s", bh2u(s))
         return
@@ -314,6 +317,11 @@ def get_address_from_output_script(_bytes):
               Ops.OP_EQUALVERIFY, Ops.OP_CHECKSIG ]
     if _match_decoded(decoded, match):
         return TYPE_ADDRESS, Address.from_P2PKH_hash(decoded[2][1])
+
+    # # bare multisig
+    # m, n, match = _extract_multisig_pattern(decoded)
+    # if _match_decoded(decoded, match):
+    #     return TYPE_SCRIPT, ScriptOutput(bytes(_bytes))
 
     # p2sh
     match = [ Ops.OP_HASH160, Ops.OP_PUSHDATA4, Ops.OP_EQUAL ]

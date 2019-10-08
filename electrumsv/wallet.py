@@ -1863,7 +1863,12 @@ class Multisig_Wallet(Deterministic_Wallet):
     # generic m of n
     gap_limit = 20
 
+    TYPE_BARE = "bare"
+    TYPE_P2SH = "p2sh"
+
     def __init__(self, storage):
+        # Either set in wallet creation/restoration, or defaults to P2SH for older wallets.
+        self.txin_type = storage.get('txin_type', self.TYPE_P2SH)
         self.wallet_type = storage.get('wallet_type')
         self.m, self.n = multisig_type(self.wallet_type)
         Deterministic_Wallet.__init__(self, storage)
@@ -1888,7 +1893,6 @@ class Multisig_Wallet(Deterministic_Wallet):
             name = 'x%d/'%(i+1)
             self.keystores[name] = load_keystore(self.storage, name)
         self.keystore = self.keystores['x1/']
-        self.txin_type = 'p2sh'
 
     def save_keystore(self):
         for name, k in self.keystores.items():

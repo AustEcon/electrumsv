@@ -1,3 +1,4 @@
+import enum
 import os
 import shutil
 import threading
@@ -7,7 +8,7 @@ from PyQt5.QtGui import QPalette, QPen, QPainter, QPixmap
 from PyQt5.QtWidgets import (
     QWidget, QDialog, QLabel, QPushButton, QScrollArea, QHBoxLayout, QVBoxLayout, QListWidget,
     QAbstractItemView, QListWidgetItem, QLineEdit, QFileDialog, QMessageBox, QSlider,
-    QGridLayout, QDialogButtonBox
+    QGridLayout, QDialogButtonBox, QGroupBox, QRadioButton, QButtonGroup
 )
 
 from bitcoinx import DecryptionError
@@ -740,7 +741,50 @@ class InstallWizard(QDialog, MessageBoxMixin, BaseWizard):
                 nlayout.accept()
 
     @wizard_dialog
-    def multisig_dialog(self, run_next):
+    def multisig_dialog_type(self, run_next):
+        txtype_groupbox = QGroupBox()
+        txtype_vbox = QVBoxLayout()
+        txtype_groupbox.setLayout(txtype_vbox)
+        txtype_groupbox.setTitle(_("Select type"))
+        txtype_buttongroup = QButtonGroup()
+
+        bms_button = QRadioButton(txtype_groupbox)
+        bms_button.setText(_('Future proof (bare multisig)'))
+        txtype_buttongroup.addButton(bms_button)
+        txtype_buttongroup.setId(bms_button, 1)
+        txtype_vbox.addWidget(bms_button)
+        bms_button.setChecked(True)
+
+        bms_label = QLabel(_("This is the recommended type of multi-signature wallet. "+
+            "It is the original way that multi-signature wallets "+
+            "were created, and payments to these wallets will continue to work going "+
+            "into the future."))
+        bms_label.setWordWrap(True)
+        txtype_vbox.addWidget(bms_label)
+
+        p2sh_button = QRadioButton(txtype_groupbox)
+        p2sh_button.setText(_('Sunsetted (P2SH)'))
+        txtype_buttongroup.addButton(p2sh_button)
+        txtype_buttongroup.setId(p2sh_button, 2)
+        txtype_vbox.addWidget(p2sh_button)
+
+        p2sh_link = "https://medium.com/@craig_10243/sun-setting-p2sh-8b3c08f271c0"
+        p2sh_label = QLabel(_("While this kind of multi-signature wallet still "+
+            "allows payments, at some stage in the near future the Bitcoin SV protocol will "+
+            "change and no more payments will be allowed to wallets of this type. "+
+            "<a href='{0}'>Read more..</a>").format(p2sh_link))
+        p2sh_label.setWordWrap(True)
+        p2sh_label.setOpenExternalLinks(True)
+        txtype_vbox.addWidget(p2sh_label)
+
+        vbox = QVBoxLayout()
+        vbox.addWidget(txtype_groupbox)
+        self.exec_layout(vbox, _("Multi-Signature Wallet"))
+
+        return txtype_buttongroup.checkedId()
+
+    @wizard_dialog
+    def multisig_dialog_scale(self, run_next):
         cw = CosignWidget(2, 2)
         m_edit = QSlider(Qt.Horizontal, self)
         n_edit = QSlider(Qt.Horizontal, self)

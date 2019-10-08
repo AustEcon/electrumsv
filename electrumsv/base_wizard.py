@@ -105,12 +105,22 @@ class BaseWizard(object):
         self.run(action)
 
     def choose_multisig(self):
+        def on_multisig(txin_type_id):
+            if txin_type_id == 1:
+                self.multisig_txin_type = Multisig_Wallet.TYPE_BARE
+            else:
+                self.multisig_txin_type = Multisig_Wallet.TYPE_P2SH
+            self.run('choose_multisig_scale')
+        self.multisig_dialog_type(run_next=on_multisig)
+
+    def choose_multisig_scale(self):
         def on_multisig(m, n):
             self.multisig_type = "%dof%d"%(m, n)
             self.storage.put('wallet_type', self.multisig_type)
+            self.storage.put('txin_type', self.multisig_txin_type)
             self.n = n
             self.run('choose_keystore')
-        self.multisig_dialog(run_next=on_multisig)
+        self.multisig_dialog_scale(run_next=on_multisig)
 
     def choose_keystore(self):
         assert self.wallet_type in ['standard', 'multisig']
