@@ -146,8 +146,8 @@ class Abstract_Wallet:
     Completion states (watching-only, single account, no seed, etc) are handled inside classes.
     """
 
-    max_change_outputs = 3
-    _filter_observed_addresses = True
+    max_change_outputs = 10
+    _filter_observed_addresses = False
 
     def __init__(self, parent_wallet: 'ParentWallet', wallet_data: Dict[str, Any]) -> None:
         # Prevent circular reference keeping parent and child wallets alive.
@@ -175,7 +175,7 @@ class Abstract_Wallet:
         self.response_count = 0
         self.progress_event = app_state.async_.event()
 
-        self.gap_limit_for_change = 6  # constant
+        self.gap_limit_for_change = 20  # constant
         # saved fields
         self.use_change = wallet_data.get('use_change', True)
         self.multiple_change = wallet_data.get('multiple_change', False)
@@ -2262,7 +2262,7 @@ class ParentWallet:
     def stop(self) -> None:
         for wallet in self.get_child_wallets():
             wallet.stop()
-        self._storage.write()
+        self.save_storage()
         self._storage.close()
 
     def create_gui_handlers(self, window: 'ElectrumWindow') -> None:
