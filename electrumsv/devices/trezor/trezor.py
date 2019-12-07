@@ -63,8 +63,7 @@ class TrezorKeyStore(Hardware_KeyStore):
     def sign_message(self, sequence, message, password):
         client = self.get_client()
         address_path = self.get_derivation() + "/%d/%d"%sequence
-        address_n = client.expand_path(address_path)
-        msg_sig = client.sign_message(self.plugin.get_coin_name(), address_n, message)
+        msg_sig = client.sign_message(address_path, message)
         return msg_sig.signature
 
     def sign_transaction(self, tx, password):
@@ -279,7 +278,7 @@ class TrezorPlugin(HW_PluginBase):
         # prepare multisig, if available:
         xpubs = wallet.get_master_public_keys()
         if len(xpubs) > 1:
-            pubkeys = wallet.get_public_keys(address)
+            pubkeys = [pubkey.to_hex() for pubkey in wallet.get_public_keys(address)]
             # sort xpubs using the order of pubkeys
             sorted_pairs = sorted(zip(pubkeys, xpubs))
             multisig = self._make_multisig(

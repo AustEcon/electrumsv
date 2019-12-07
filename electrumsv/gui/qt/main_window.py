@@ -232,7 +232,8 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             # partials, lambdas or methods of subobjects.  Hence...
             self.network.register_callback(self.on_network, interests)
             # set initial message
-            self.console.showMessage(self.network.main_server.state.banner)
+            if self.network.main_server:
+                self.console.showMessage(self.network.main_server.state.banner)
             self.network.register_callback(self.on_quotes, ['on_quotes'])
             self.network.register_callback(self._on_history, ['on_history'])
             self.network.register_callback(self._on_addresses_updated, ['on_addresses_updated'])
@@ -719,9 +720,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         QMessageBox.about(self, "ElectrumSV",
             _("Version")+" %s" % PACKAGE_VERSION + "\n\n" +
             _("ElectrumSV's focus is speed, with low resource usage and simplifying "
-              "Bitcoin SV. You do not need to perform regular backups, because your "
-              "wallet can be recovered from a secret phrase that you can memorize or "
-              "write on paper. Startup times are instant because it operates in "
+              "Bitcoin SV. Startup times are instant because it operates in "
               "conjunction with high-performance servers that handle the most complicated "
               "parts of the Bitcoin SV system."  + "\n\n" +
               _("Uses icons from the Icons8 icon pack (icons8.com).")))
@@ -1699,17 +1698,9 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             else:
                 result = self.network.broadcast_transaction_and_wait(tx)
 
-                # Success --> StateDispatched
                 if result == tx.txid():
-                    self.logger.debug(f'broadcast_tx in main_window successful '
-                                      f'broadcast for: {result}')
-                    self.logger.debug(f'setting transaction to StateDispatched...')
-                    #                 f'and removing used utxos from cache...')
                     wallet.set_transaction_state(tx.txid(),
-                                                 (TxFlags.StateDispatched | TxFlags.HasByteData))
-                    #used_utxo_keys = [(hash_to_hex_str(input.prev_hash),
-                    # input.prev_idx) for input in tx.inputs]
-                    #wallet._datastore.utxos.remove_utxos_by_key(used_utxo_keys)
+                        (TxFlags.StateDispatched | TxFlags.HasByteData))
                 return result
 
         def on_done(future):
@@ -2252,8 +2243,15 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
 
         def show_decrypted_message(msg):
             message_e.setText(msg.decode())
-        self.run_in_thread(child_wallet.decrypt_message, pubkey_e.text(), cyphertext, password,
-                           on_success=show_decrypted_message)
+
+        try:
+            public_key = PublicKey.from_hex(pubkey_e.text())
+        except Exception as e:
+            self.logger.exception("")
+            self.show_warning(_('Invalid Public key'))
+        else:
+            self.run_in_thread(child_wallet.decrypt_message, public_key, cyphertext, password,
+                               on_success=show_decrypted_message)
 
     def do_encrypt(self, child_wallet: Abstract_Wallet, message_e, pubkey_e, encrypted_e) -> None:
         message = message_e.toPlainText()

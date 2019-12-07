@@ -512,7 +512,7 @@ class Abstract_Wallet:
         secret, compressed = keystore.get_private_key(index, password)
         return PrivateKey(secret).to_WIF(compressed=compressed, coin=Net.COIN)
 
-    def get_public_keys(self, address: Address):
+    def get_public_keys(self, address: Address) -> List[PublicKey]:
         sequence = self.get_address_index(address)
         return self.get_pubkeys(*sequence)
 
@@ -525,9 +525,13 @@ class Abstract_Wallet:
             # This rests on the commitment that any of the following four tx States *will*
             # Have tx bytedata i.e. "HasByteData" flag is set.
             possible_states = (TxFlags.StateSigned | TxFlags.StateDispatched |
-                               TxFlags.StateCleared | TxFlags.StateReceived)
+                               TxFlags.StateReceived)
             entry = self._datastore.tx.get_entry(tx_hash, flags=possible_states)
-            self.logger.debug("Fast_tracking entry to StateSettled: %r", entry)
+            if entry.flags & TxFlags.HasByteData != 0:
+                self.logger.debug("Fast_tracking entry to StateSettled: %r", entry)
+            else:
+                self.logger.debug("Fetching transaction bytedata for %s %r", tx_hash, entry)
+                return
 
         # We only update a subset.
         flags = TxFlags.HasHeight | TxFlags.HasTimestamp | TxFlags.HasPosition
@@ -1006,10 +1010,10 @@ class Abstract_Wallet:
 
     async def set_address_history(self, script_hash: str, address: Address,
             hist: Dict[str, List[Tuple[str, int]]], tx_fees: Dict[str, int]):
-        # We got here by scanning new / "observed addresses"
+        # We got here due to incoming transactions for subscriptions to new / "observed addresses"
         # If we prepared this tx locally then we will already have a TxCacheEntry which
         # HasByteData flag set. (StateSigned | StateDispatched | StateReceived)
-        # In such cases we can fast track --> StateCleared
+        # In such cases we can "upgrade" the TxFlag to StateCleared.
         # It will skip the "missing_transaction pool" in monitor_txs (because HasByteData)
         # And if we have a proof, it should go straight into the "unverified pool"
         # of 'monitor_txs'
@@ -1029,39 +1033,31 @@ class Abstract_Wallet:
                     flags |= TxFlags.HasFee
                 updates.append((tx_hash, data, None, flags))
 
-                self._datastore.tx.update_or_add(updates)
+            self._datastore.tx.update_or_add(updates)
 
             for tx_id in set(t[0] for t in hist):
-                has_tx_data = self._datastore.tx.have_transaction_data(tx_id)
-                is_cached = self._datastore.tx.is_cached(tx_id)
-                if has_tx_data and is_cached:
-                    entry = self._datastore.tx.get_cached_entry(tx_id)
-                if has_tx_data and not is_cached:
-                    entry = self._datastore.tx.get_entry(tx_id)
+                entry = self._datastore.tx.get_cached_entry(tx_id)
 
-                # if StateSigned | StateDispatched | StateReceived update --> StateCleared
-                if has_tx_data and entry.flags & (TxFlags.StateCleared | TxFlags.StateSettled) == 0:
-                    self.logger.debug("updating incoming tx --> StateCleared. Before: %s ", entry)
+                # StateSigned, StateDispatched, StateReceived with bytedata update to StateCleared
+                if entry.flags & TxFlags.HasByteData != 0 and \
+                        entry.flags & (TxFlags.StateCleared | TxFlags.StateSettled) == 0:
                     self.set_transaction_state(tx_id, TxFlags.StateCleared | TxFlags.HasByteData)
-                    self.logger.debug("After update: %s ", self._datastore.tx.get_entry(tx_id))
-                    #self.logger.debug("Before utxo and frozen coin cleanup: %s, frozen coins: %s",
-                    #                  self._datastore.utxos, self._frozen_coins)
                     self.handle_incoming_payments(entry.transaction, tx_hash)  # Add to UTXOCache
                     #self.handle_outgoing_payments(entry.transaction)  # Cleanup Frozen coins
-                    #self.logger.debug("After utxo and frozen coin cleanup: %s, frozen coins: %s ",
-                    #                  self._datastore.utxos, self._frozen_coins)
-
-                    # else let it flow through to the "monitor_txs" loop and be dealt with
-                    # by the "missing_transactions pool"... (for txs without "HasByteData)
 
                 # if addr is new, we have to recompute txi and txo
-                if len(self.get_txins(tx_id, address)) and len(self.get_txouts(tx_id, address)):
-                    self.apply_transactions_xputs(tx_id, entry.transaction)
+                if self._datastore.tx.have_transaction_data(tx_id) and \
+                        not len(self.get_txins(tx_id, address)) and \
+                        not len(self.get_txouts(tx_id, address)):
+                    tx = self.get_transaction(tx_id)
+                    self.apply_transactions_xputs(tx_id, tx)
+                    # else this occurs when missing transaction bytedata is fetched in _monitor_txs.
+                    # In the p2p model, we already have tx bytedata in cache or database
 
         self.txs_changed_event.set()
-        # --> awakens network._monitor_txs loop
-        # Any transactions that do not 'HasByteData' --> "missing_transactions" pool
-        # to get ByteData and only then do they upgrade --> StateCleared
+        # Awakens network._monitor_txs loop for transactions that do not have 'HasByteData'flag set.
+        # These  go to "missing_transactions" pool to get transaction ByteData and only then do they
+        # upgrade to StateCleared
         await self._trigger_synchronization()
 
     def get_history(self, domain=None):
@@ -1162,13 +1158,14 @@ class Abstract_Wallet:
         return label
 
     def get_default_label(self, tx_hash):
-        if not len(self.get_txins(tx_hash)):
-            labels = []
-            for txout in self.get_txouts(tx_hash):
-                label = self.get_address_label(txout.address_string)
-                if label:
-                    labels.append(label)
-            return ', '.join(labels)
+        with self.transaction_lock:
+            if not len(self.get_txins(tx_hash)):
+                labels = []
+                for txout in self.get_txouts(tx_hash):
+                    label = self.get_address_label(txout.address_string)
+                    if label:
+                        labels.append(label)
+                return ', '.join(labels)
         return ''
 
     def dust_threshold(self):
@@ -1386,6 +1383,7 @@ class Abstract_Wallet:
                 index = self.get_address_index(addr)
                 pubkeys = self.get_public_keys(addr)
                 # sort xpubs using the order of pubkeys
+                pubkeys = [pubkey.to_hex() for pubkey in pubkeys]
                 sorted_pubkeys, sorted_xpubs = zip(*sorted(zip(pubkeys, xpubs)))
                 item = (index, sorted_xpubs, self.m if isinstance(self, Multisig_Wallet) else None)
             else:
@@ -1661,7 +1659,7 @@ class Abstract_Wallet:
         keystore = self.get_keystore()
         return keystore.sign_message(index, message, password)
 
-    def decrypt_message(self, pubkey, message, password):
+    def decrypt_message(self, pubkey:PublicKey, message, password):
         addr = self.pubkeys_to_address(pubkey)
         index = self.get_address_index(addr)
         keystore = self.get_keystore()
@@ -1842,10 +1840,10 @@ class ImportedPrivkeyWallet(ImportedWalletBase):
     def delete_address_derived(self, address):
         self.get_keystore().remove_address(address)
 
-    def get_address_index(self, address):
+    def get_address_index(self, address) -> PublicKey:
         return self.get_public_key(address)
 
-    def get_public_key(self, address):
+    def get_public_key(self, address) -> PublicKey:
         return self.get_keystore().address_to_pubkey(address)
 
     def import_private_key(self, sec, pw):
@@ -1867,10 +1865,9 @@ class ImportedPrivkeyWallet(ImportedWalletBase):
             pubkey = self.get_keystore().address_to_pubkey(address)
             txin.x_pubkeys = [XPublicKey(pubkey.to_bytes())]
 
-    def pubkeys_to_address(self, pubkey):
-        pubkey = PublicKey.from_hex(pubkey)
+    def pubkeys_to_address(self, pubkey: PublicKey):
         if pubkey in self.get_keystore().keypairs:
-            return address_from_string(pubkey.to_address(coin=Net.COIN).to_string())
+            return pubkey.to_address(coin=Net.COIN)
 
 
 class Deterministic_Wallet(Abstract_Wallet):
@@ -1990,14 +1987,14 @@ class Simple_Deterministic_Wallet(Simple_Wallet, Deterministic_Wallet):
         Deterministic_Wallet.__init__(self, parent_wallet, wallet_data)
         self.txin_type = 'p2pkh'
 
-    def get_public_key(self, address: Address) -> str:
+    def get_public_key(self, address: Address) -> PublicKey:
         c, i = self.get_address_index(address)
         return self.get_pubkey(c, i)
 
-    def get_pubkey(self, c: bool, i: int) -> str:
+    def get_pubkey(self, c: bool, i: int) -> PublicKey:
         return self.derive_pubkeys(c, i)
 
-    def get_public_keys(self, address):
+    def get_public_keys(self, address) -> List[PublicKey]:
         return [self.get_public_key(address)]
 
     def _add_input_sig_info(self, txin):
@@ -2010,15 +2007,15 @@ class Simple_Deterministic_Wallet(Simple_Wallet, Deterministic_Wallet):
     def get_master_public_key(self):
         return self.get_keystore().get_master_public_key()
 
-    def derive_pubkeys(self, c: bool, i: int) -> str:
+    def derive_pubkeys(self, c: bool, i: int) -> PublicKey:
         return self.get_keystore().derive_pubkey(c, i)
 
 
 class Standard_Wallet(Simple_Deterministic_Wallet):
     wallet_type = 'standard'
 
-    def pubkeys_to_address(self, pubkey):
-        return PublicKey.from_hex(pubkey).to_address(coin=Net.COIN)
+    def pubkeys_to_address(self, pubkey: PublicKey):
+        return pubkey.to_address(coin=Net.COIN)
 
 
 class Multisig_Wallet(Deterministic_Wallet):
@@ -2034,18 +2031,20 @@ class Multisig_Wallet(Deterministic_Wallet):
         self.m, self.n = multisig_type(self.wallet_type)
         Deterministic_Wallet.__init__(self, parent_wallet, wallet_data)
 
-    def get_pubkeys(self, c, i):
+    def get_pubkeys(self, c, i) -> List[PublicKey]:
         return self.derive_pubkeys(c, i)
 
-    def pubkeys_to_address(self, pubkeys):
+    def pubkeys_to_address(self, pubkeys: List[PublicKey]):
         redeem_script = self.pubkeys_to_redeem_script(pubkeys)
         return P2SH_Address(hash160(redeem_script), Net.COIN)
 
-    def pubkeys_to_redeem_script(self, pubkeys):
-        assert all(isinstance(pubkey, str) for pubkey in pubkeys)
+    def pubkeys_to_redeem_script(self, pubkeys: List[PublicKey]):
+        assert all(isinstance(pubkey, PublicKey) for pubkey in pubkeys)
+        # FIXME: remove if/when bitcoinx introduces comparison operators for PublicKey objects
+        pubkeys = [pubkey.to_hex() for pubkey in pubkeys]
         return P2MultiSig_Output(sorted(pubkeys), self.m).to_script_bytes()
 
-    def derive_pubkeys(self, c, i):
+    def derive_pubkeys(self, c, i) -> List[PublicKey]:
         return [k.derive_pubkey(c, i) for k in self.get_keystores()]
 
     def _get_keystore_usage(self) -> List[Dict[str, Any]]:

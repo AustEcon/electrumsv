@@ -1134,7 +1134,6 @@ class Network:
                                            TxFlags.HasByteData)  # Add to TxCache
                     wallet.handle_incoming_payments(tx, tx_hash)  # Add to UTXOCache
                     #wallet.handle_outgoing_payments(tx)  # Cleanup Frozen coins
-
                     self.trigger_callback('new_transaction', tx, wallet)
         return had_timeout
 
