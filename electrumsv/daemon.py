@@ -25,14 +25,14 @@
 
 import ast
 import base64
-from typing import Optional, Tuple, Any, Dict
+from typing import Optional, Tuple, Any, Callable, ClassVar
 import os
 import time
 
 import jsonrpclib
 from aiohttp import web
 
-from .restapi import AiohttpServer
+from .restapi import AiohttpServer, class_to_instance_methods
 from .app_state import app_state
 from .commands import known_commands, Commands
 from .exchange_rate import FxTask
@@ -44,6 +44,7 @@ from .storage import WalletStorage
 from .util import json_decode, DaemonThread, to_string, random_integer, get_wallet_name_from_path
 from .version import PACKAGE_VERSION
 from .wallet import ParentWallet
+from .restapi_endpoints import routes as default_routes, DefaultEndpoints
 
 
 logger = logs.get_logger("daemon")
@@ -136,6 +137,16 @@ def get_rpc_credentials(config: SimpleConfig, is_restapi=False) \
     return rpc_user, rpc_password
 
 
+def get_network_type():
+    # self.network_type = app_state.config.get
+    if app_state.config.get('testnet'):
+        return 'test'
+    if app_state.config.get('scalingtestnet'):
+        return 'stn'
+    else:
+        return 'main'
+
+
 class Daemon(DaemonThread):
 
     def __init__(self, fd, is_gui: bool) -> None:
@@ -159,27 +170,13 @@ class Daemon(DaemonThread):
         self.rest_server = None
         if app_state.config.get("cmd") == "daemon":
             self.init_restapi_server(config, fd)
-            self.default_endpoints = {"/"    : self.status,
-                                      "/ping": self.rest_ping}
-            self.configure_restapi_server(self.default_endpoints)
+            self.configure_restapi_server()
 
-    # ----- Default External API ----- #
+    def configure_restapi_server(self):
+        self.rest_server.register_routes(endpoints_class=DefaultEndpoints, routes=default_routes)
 
-    async def status(self, request):
-        return web.json_response({
-            "status": "success",
-        })
-
-    async def rest_ping(self, request):
-        return web.json_response({
-            "value": "pong"
-        })
-
-    # -------------------------------- #
-
-    def configure_restapi_server(self, extension_endpoints: Dict[str, Any]):
-        self.rest_server.register_new_endpoints(extension_endpoints)
-        self.logger.debug("added default rest api endpoints: %s", list(extension_endpoints.keys()))
+        added_routes = [route.canonical for route in self.rest_server.app.router._resources]
+        self.logger.debug("added default rest api endpoints: %s", added_routes)
         pass
 
     def init_restapi_server(self, config: SimpleConfig, fd) -> None:
@@ -189,7 +186,7 @@ class Daemon(DaemonThread):
         # Basic Auth not yet configured. Credentials shared with rpc currently.
         username, password = get_rpc_credentials(config, is_restapi=True)
         self.rest_server = AiohttpServer(host=host, port=port, username=username,
-                password=password, extension_endpoints=None)
+                                         password=password, extension_endpoints=None)
         # let the rpc server handle the fd for now (until we purge the jsonrpc server from ESV)
         return
 

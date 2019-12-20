@@ -1,7 +1,25 @@
 import asyncio
-from typing import Any, Dict, Callable, List, Optional
+from typing import Any, Dict, Optional, ClassVar
 from aiohttp import web
 import logging
+
+from aiohttp.web_urldispatcher import UrlDispatcher
+
+
+def class_to_instance_methods(klass: ClassVar, routes: web.RouteTableDef) -> UrlDispatcher:
+    """Allows @routes.get("/") decorator syntax on instance methods which keeps contextually
+    relevant http method, path and handler together in one place."""
+    instance = klass()
+    router = UrlDispatcher()
+    http_methods = [route.method for route in routes._items]
+    handlers = [route.handler.__name__ for route in routes._items]
+    paths = [route.path for route in routes._items]
+
+    for path, handler, http_method in zip(paths, handlers, http_methods):
+        instance_method = getattr(instance, handler)
+        adder = getattr(router, "add_" + http_method.lower())
+        adder(path=path, handler=instance_method)
+    return router
 
 
 class BaseAiohttpServer:
@@ -45,20 +63,14 @@ class AiohttpServer(BaseAiohttpServer):
     def add_routes(self, routes):
         self.app.router.add_routes(routes)
 
-    def add_methods(self, methods: List[Callable]):
-        for method in methods:
-            self.__setattr__(method.__name__, method)
-
-    def register_new_endpoints(self, extension_endpoints: Dict[str, Any]):
-        """Takes a dictionary of {urls: methods} for registration as new endpoints"""
-        routes = [web.get(endpoint, method) for endpoint, method in extension_endpoints.items()]
-        methods = [method for endpoint, method in extension_endpoints.items()]
-        self.app.add_routes(routes)
-        self.add_methods(methods)
-
     async def launcher(self):
         await self.start()
         self.is_alive = True
         self.logger.debug("started on http://%s:%s", self.host, self.port)
         while True:
             await asyncio.sleep(0.5)
+
+    def register_routes(self, endpoints_class: ClassVar, routes: web.RouteTableDef):
+        transformed_router = class_to_instance_methods(klass=endpoints_class, routes=routes)
+        for resource in transformed_router.resources():
+            self.app.router.register_resource(resource)
