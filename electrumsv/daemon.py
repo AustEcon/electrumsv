@@ -28,11 +28,8 @@ import base64
 from typing import Optional, Tuple, Any, Callable, ClassVar
 import os
 import time
-
 import jsonrpclib
-from aiohttp import web
-
-from .restapi import AiohttpServer, class_to_instance_methods
+from .restapi import AiohttpServer
 from .app_state import app_state
 from .commands import known_commands, Commands
 from .exchange_rate import FxTask
@@ -44,7 +41,7 @@ from .storage import WalletStorage
 from .util import json_decode, DaemonThread, to_string, random_integer, get_wallet_name_from_path
 from .version import PACKAGE_VERSION
 from .wallet import ParentWallet
-from .restapi_endpoints import routes as default_routes, DefaultEndpoints
+from .restapi_endpoints import DefaultEndpoints
 
 
 logger = logs.get_logger("daemon")
@@ -163,7 +160,7 @@ class Daemon(DaemonThread):
             self.configure_restapi_server()
 
     def configure_restapi_server(self):
-        self.rest_server.register_routes(endpoints_class=DefaultEndpoints, routes=default_routes)
+        self.rest_server.register_routes(DefaultEndpoints)
 
         added_routes = [route.canonical for route in self.rest_server.app.router._resources]
         self.logger.debug("added default rest api endpoints: %s", added_routes)
@@ -173,7 +170,6 @@ class Daemon(DaemonThread):
         host = config.get('rpchost', '127.0.0.1')
         port = 9999  # hard-code until added to config
 
-        # Basic Auth not yet configured. Credentials shared with rpc currently.
         username, password = get_rpc_credentials(config, is_restapi=True)
         self.rest_server = AiohttpServer(host=host, port=port, username=username,
                                          password=password)

@@ -21,8 +21,7 @@ URL_NETWORK_MISMATCH_MESSAGE = "Wallet is on '{}' network. You requested: '{}' n
 
 
 def class_to_instance_methods(klass: ClassVar, routes: web.RouteTableDef) -> UrlDispatcher:
-    """Allows @routes.get("/") decorator syntax on instance methods which keeps contextually
-    relevant http method, path and handler together in one place."""
+    """Allows @routes.get("/") decorator syntax on instance methods."""
     instance = klass()
     router = UrlDispatcher()
     http_methods = [route.method for route in routes._items]
@@ -90,7 +89,7 @@ class BaseAiohttpServer:
         return web.json_response(data=response_obj, status=403)
 
     def _good_response(self, response):
-        return web.Response(text=json.dumps(response, indent=2), content_type = "application/json")
+        return web.Response(text=json.dumps(response, indent=2), content_type="application/json")
 
 
 class AiohttpServer(BaseAiohttpServer):
@@ -137,12 +136,12 @@ class AiohttpServer(BaseAiohttpServer):
         auth_string = request.headers.get('Authorization', None)
         if auth_string is None:
             return self._unauthorized(AUTH_CREDENTIALS_INVALID_CODE,
-                                     AUTH_CREDENTIALS_INVALID_MESSAGE)
+                                      AUTH_CREDENTIALS_INVALID_MESSAGE)
 
         (basic, _, encoded) = auth_string.partition(' ')
         if basic != 'Basic':
             return self._unauthorized(AUTH_UNSUPPORTED_TYPE_CODE,
-                                     AUTH_UNSUPPORTED_TYPE_MESSAGE)
+                                      AUTH_UNSUPPORTED_TYPE_MESSAGE)
 
         encoded = to_bytes(encoded, 'utf8')
         credentials = to_string(b64decode(encoded), 'utf8')
@@ -166,7 +165,8 @@ class AiohttpServer(BaseAiohttpServer):
         while True:
             await asyncio.sleep(0.5)
 
-    def register_routes(self, endpoints_class: ClassVar, routes: web.RouteTableDef):
-        transformed_router = class_to_instance_methods(klass=endpoints_class, routes=routes)
+    def register_routes(self, endpoints_class: ClassVar):
+        transformed_router = class_to_instance_methods(klass=endpoints_class,
+                                                       routes=endpoints_class.routes)
         for resource in transformed_router.resources():
             self.app.router.register_resource(resource)

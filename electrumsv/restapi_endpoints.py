@@ -4,10 +4,10 @@ from json import JSONDecodeError
 
 from aiohttp import web
 
-routes = web.RouteTableDef()  # restapi.class_to_instance_methods() converts handlers
-
 
 class DefaultEndpoints:
+
+    routes = web.RouteTableDef()  # restapi.class_to_instance_methods() converts handlers
 
     def __init__(self):
         self.logger = logging.getLogger("default-endpoints")
