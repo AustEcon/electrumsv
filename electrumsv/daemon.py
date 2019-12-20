@@ -137,16 +137,6 @@ def get_rpc_credentials(config: SimpleConfig, is_restapi=False) \
     return rpc_user, rpc_password
 
 
-def get_network_type():
-    # self.network_type = app_state.config.get
-    if app_state.config.get('testnet'):
-        return 'test'
-    if app_state.config.get('scalingtestnet'):
-        return 'stn'
-    else:
-        return 'main'
-
-
 class Daemon(DaemonThread):
 
     def __init__(self, fd, is_gui: bool) -> None:
@@ -186,7 +176,7 @@ class Daemon(DaemonThread):
         # Basic Auth not yet configured. Credentials shared with rpc currently.
         username, password = get_rpc_credentials(config, is_restapi=True)
         self.rest_server = AiohttpServer(host=host, port=port, username=username,
-                                         password=password, extension_endpoints=None)
+                                         password=password)
         # let the rpc server handle the fd for now (until we purge the jsonrpc server from ESV)
         return
 
