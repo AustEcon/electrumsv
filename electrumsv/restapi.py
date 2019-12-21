@@ -2,7 +2,7 @@ import asyncio
 import json
 from base64 import b64decode
 from json import JSONDecodeError
-from typing import Optional, ClassVar, Dict
+from typing import Optional, ClassVar, Dict, Union, Any
 from aiohttp import web
 from aiohttp.web_urldispatcher import UrlDispatcher
 import logging
@@ -63,11 +63,11 @@ def good_response(response: Dict) -> web.Response:
     return web.Response(text=json.dumps(response, indent=2), content_type="application/json")
 
 
-async def decode_request(request):
+async def decode_request(request) -> Union[web.Response, Dict[Any, Any]]:
     """Request validation"""
-    if not request.content.is_eof():
-        return {}
     body = await request.content.read()
+    if body == b"":
+        return {}
     try:
         request_body = json.loads(body.decode('utf-8'))
     except JSONDecodeError as e:
@@ -80,8 +80,9 @@ async def decode_request(request):
 class Errors:
     """Error codes to facilitate client side troubleshooting of application-specific issues."""
     # http 400 bad requests
-    URL_INVALID_NETWORK_CODE = 10000
-    URL_NETWORK_MISMATCH_CODE = 10001
+    GENERIC_BAD_REQUEST = 10000
+    URL_INVALID_NETWORK_CODE = 10001
+    URL_NETWORK_MISMATCH_CODE = 10002
 
     # http 401 unauthorized
     AUTH_CREDENTIALS_INVALID_CODE = 10101
@@ -99,7 +100,7 @@ class Errors:
     AUTH_UNSUPPORTED_TYPE_MESSAGE = "Authentication failed (only basic auth is supported)."
     URL_INVALID_NETWORK_MESSAGE = "Only {} networks are supported. You entered: '{}' network."
     URL_NETWORK_MISMATCH_MESSAGE = "Wallet is on '{}' network. You requested: '{}' network."
-    WALLET_NOT_FOUND_MESSAGE = "Wallet {} does not exist."
+    WALLET_NOT_FOUND_MESSAGE = "Wallet: '{}' does not exist."
 
 
 class BaseAiohttpServer:
@@ -140,7 +141,8 @@ class AiohttpServer(BaseAiohttpServer):
         self.username = username
         self.password = password
         self.network = get_network_type()
-        self.app.middlewares.extend([self.authenticate, self.check_network])
+        self.app.middlewares.extend([web.normalize_path_middleware(append_slash=False,
+            remove_slash=True), self.authenticate, self.check_network])
 
     @web.middleware
     async def check_network(self, request, handler):
