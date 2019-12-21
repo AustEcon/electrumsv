@@ -1,27 +1,18 @@
 import asyncio
 import json
 from base64 import b64decode
-from typing import Optional, ClassVar
+from json import JSONDecodeError
+from typing import Optional, ClassVar, Dict
 from aiohttp import web
-import logging
 from aiohttp.web_urldispatcher import UrlDispatcher
+import logging
 from .util import to_bytes, to_string, constant_time_compare
 from .app_state import app_state
 
-AUTH_CREDENTIALS_INVALID_CODE = 10000
-AUTH_CREDENTIALS_MISSING_CODE = 10001
-AUTH_UNSUPPORTED_TYPE_CODE = 10002
-URL_INVALID_NETWORK_CODE = 10003
-URL_NETWORK_MISMATCH_CODE = 10004
-AUTH_CREDENTIALS_INVALID_MESSAGE = "Authentication failed (bad credentials)."
-AUTH_CREDENTIALS_MISSING_MESSAGE = "Authentication failed (missing credentials)."
-AUTH_UNSUPPORTED_TYPE_MESSAGE = "Authentication failed (only basic auth is supported)."
-URL_INVALID_NETWORK_MESSAGE = "Only {} networks are supported. You entered: '{}' network."
-URL_NETWORK_MISMATCH_MESSAGE = "Wallet is on '{}' network. You requested: '{}' network."
-
 
 def class_to_instance_methods(klass: ClassVar, routes: web.RouteTableDef) -> UrlDispatcher:
-    """Allows @routes.get("/") decorator syntax on instance methods."""
+    """Allows @routes.get("/") decorator syntax on instance methods and all of the benefits
+    associated with that (regex, dynamic resources / url paths, code readability etc."""
     instance = klass()
     router = UrlDispatcher()
     http_methods = [route.method for route in routes._items]
@@ -42,6 +33,73 @@ def get_network_type():
         return 'stn'
     else:
         return 'main'
+
+
+def bad_request(code: int, message: str) -> web.Response:
+    response_obj = {'code': code,
+                    'message': message}
+    return web.json_response(data=response_obj, status=400)
+
+
+def unauthorized(code: int, message: str) -> web.Response:
+    response_obj = {'code': code,
+                    'message': message}
+    return web.json_response(data=response_obj, status=401)
+
+
+def forbidden(code: int, message: str) -> web.Response:
+    response_obj = {'code': code,
+                    'message': message}
+    return web.json_response(data=response_obj, status=403)
+
+
+def not_found(code: int, message: str) -> web.Response:
+    response_obj = {'code': code,
+                    'message': message}
+    return web.json_response(data=response_obj, status=404)
+
+
+def good_response(response: Dict) -> web.Response:
+    return web.Response(text=json.dumps(response, indent=2), content_type="application/json")
+
+
+async def decode_request(request):
+    """Request validation"""
+    if not request.content.is_eof():
+        return {}
+    body = await request.content.read()
+    try:
+        request_body = json.loads(body.decode('utf-8'))
+    except JSONDecodeError as e:
+        fault_message = "JSONDecodeError: " + str(e)
+        response_obj = {'message': fault_message}
+        return web.json_response(data=response_obj, status=400)
+    return request_body
+
+
+class Errors:
+    """Error codes to facilitate client side troubleshooting of application-specific issues."""
+    # http 400 bad requests
+    URL_INVALID_NETWORK_CODE = 10000
+    URL_NETWORK_MISMATCH_CODE = 10001
+
+    # http 401 unauthorized
+    AUTH_CREDENTIALS_INVALID_CODE = 10101
+    AUTH_CREDENTIALS_MISSING_CODE = 10102
+    AUTH_UNSUPPORTED_TYPE_CODE = 10103
+
+    # http 402 - 102xx series
+    # http 403 - 103xx series
+
+    # http 404 not found
+    WALLET_NOT_FOUND_CODE = 10401
+
+    AUTH_CREDENTIALS_INVALID_MESSAGE = "Authentication failed (bad credentials)."
+    AUTH_CREDENTIALS_MISSING_MESSAGE = "Authentication failed (missing credentials)."
+    AUTH_UNSUPPORTED_TYPE_MESSAGE = "Authentication failed (only basic auth is supported)."
+    URL_INVALID_NETWORK_MESSAGE = "Only {} networks are supported. You entered: '{}' network."
+    URL_NETWORK_MISMATCH_MESSAGE = "Wallet is on '{}' network. You requested: '{}' network."
+    WALLET_NOT_FOUND_MESSAGE = "Wallet {} does not exist."
 
 
 class BaseAiohttpServer:
@@ -73,24 +131,6 @@ class BaseAiohttpServer:
     async def stop(self):
         await self.runner.cleanup()
 
-    def _bad_request(self, code, message):
-        response_obj = {'code': code,
-                        'message': message}
-        return web.json_response(data=response_obj, status=400)
-
-    def _unauthorized(self, code, message):
-        response_obj = {'code': code,
-                        'message': message}
-        return web.json_response(data=response_obj, status=401)
-
-    def _forbidden(self, code, message):
-        response_obj = {'code': code,
-                        'message': message}
-        return web.json_response(data=response_obj, status=403)
-
-    def _good_response(self, response):
-        return web.Response(text=json.dumps(response, indent=2), content_type="application/json")
-
 
 class AiohttpServer(BaseAiohttpServer):
 
@@ -106,21 +146,24 @@ class AiohttpServer(BaseAiohttpServer):
     async def check_network(self, request, handler):
         supported_networks = ['main', 'stn', 'test']
         network = request.match_info.get('network', None)
-        # some urls don't have the network in the path
+
+        # paths without {network} are okay
         if network is None:
             response = await handler(request)
             return response
+
         # check if supported network
         else:
             if network not in supported_networks:
-                code = URL_INVALID_NETWORK_CODE
-                message = URL_INVALID_NETWORK_MESSAGE.format(supported_networks, network)
-                return self._bad_request(code, message)
-        # check if current wallet is running on this network
+                code =    Errors.URL_INVALID_NETWORK_CODE
+                message = Errors.URL_INVALID_NETWORK_MESSAGE.format(supported_networks, network)
+                return bad_request(code, message)
+
+        # check if network matches daemon
         if self.network != network:
-            code = URL_NETWORK_MISMATCH_CODE
-            message = URL_NETWORK_MISMATCH_MESSAGE.format(self.network, network)
-            return self._bad_request(code, message)
+            code =    Errors.URL_NETWORK_MISMATCH_CODE
+            message = Errors.URL_NETWORK_MISMATCH_MESSAGE.format(self.network, network)
+            return bad_request(code, message)
 
         response = await handler(request)
         return response
@@ -135,13 +178,13 @@ class AiohttpServer(BaseAiohttpServer):
 
         auth_string = request.headers.get('Authorization', None)
         if auth_string is None:
-            return self._unauthorized(AUTH_CREDENTIALS_INVALID_CODE,
-                                      AUTH_CREDENTIALS_INVALID_MESSAGE)
+            return unauthorized(Errors.AUTH_CREDENTIALS_MISSING_CODE,
+                                Errors.AUTH_CREDENTIALS_MISSING_MESSAGE)
 
         (basic, _, encoded) = auth_string.partition(' ')
         if basic != 'Basic':
-            return self._unauthorized(AUTH_UNSUPPORTED_TYPE_CODE,
-                                      AUTH_UNSUPPORTED_TYPE_MESSAGE)
+            return unauthorized(Errors.AUTH_UNSUPPORTED_TYPE_CODE,
+                                Errors.AUTH_UNSUPPORTED_TYPE_MESSAGE)
 
         encoded = to_bytes(encoded, 'utf8')
         credentials = to_string(b64decode(encoded), 'utf8')
@@ -149,7 +192,8 @@ class AiohttpServer(BaseAiohttpServer):
         if not (constant_time_compare(username, self.username)
                 and constant_time_compare(password, self.password)):
             await asyncio.sleep(0.050)
-            return self._forbidden(AUTH_CREDENTIALS_INVALID_CODE, AUTH_CREDENTIALS_INVALID_MESSAGE)
+            return unauthorized(Errors.AUTH_CREDENTIALS_INVALID_CODE,
+                                Errors.AUTH_CREDENTIALS_INVALID_MESSAGE)
 
         # passed authentication
         response = await handler(request)
