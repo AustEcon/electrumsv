@@ -63,7 +63,7 @@ def good_response(response: Dict) -> web.Response:
     return web.Response(text=json.dumps(response, indent=2), content_type="application/json")
 
 
-async def decode_request(request) -> Union[web.Response, Dict[Any, Any]]:
+async def decode_request(request) -> [Dict[Any, Any]]:
     """Request validation"""
     body = await request.content.read()
     if body == b"":
@@ -71,9 +71,11 @@ async def decode_request(request) -> Union[web.Response, Dict[Any, Any]]:
     try:
         request_body = json.loads(body.decode('utf-8'))
     except JSONDecodeError as e:
-        fault_message = "JSONDecodeError: " + str(e)
-        response_obj = {'message': fault_message}
-        return web.json_response(data=response_obj, status=400)
+        fault_message = str(e)
+        # caller needs to check for 'code' key indicating an error occured
+        error = {'code' : Errors.JSON_DECODE_ERROR_CODE,
+                 'message': fault_message}
+        return error
     return request_body
 
 
@@ -83,6 +85,7 @@ class Errors:
     GENERIC_BAD_REQUEST = 10000
     URL_INVALID_NETWORK_CODE = 10001
     URL_NETWORK_MISMATCH_CODE = 10002
+    JSON_DECODE_ERROR_CODE = 10003  # message generated from exception
 
     # http 401 unauthorized
     AUTH_CREDENTIALS_INVALID_CODE = 10101

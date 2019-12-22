@@ -162,10 +162,6 @@ class Daemon(DaemonThread):
     def configure_restapi_server(self):
         self.rest_server.register_routes(DefaultEndpoints)
 
-        added_routes = [route.canonical for route in self.rest_server.app.router._resources]
-        self.logger.debug("added default rest api endpoints: %s", added_routes)
-        pass
-
     def init_restapi_server(self, config: SimpleConfig, fd) -> None:
         host = config.get('rpchost', '127.0.0.1')
         port = 9999  # hard-code until added to config
