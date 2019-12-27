@@ -2,7 +2,7 @@ import asyncio
 import json
 from base64 import b64decode
 from json import JSONDecodeError
-from typing import Optional, ClassVar, Dict, Union, Any
+from typing import Optional, ClassVar, Dict, Union, Any, Tuple
 from aiohttp import web
 from aiohttp.web_urldispatcher import UrlDispatcher
 import logging
@@ -10,7 +10,8 @@ from .util import to_bytes, to_string, constant_time_compare
 from .app_state import app_state
 
 
-def class_to_instance_methods(klass: ClassVar, routes: web.RouteTableDef) -> UrlDispatcher:
+def class_to_instance_methods(klass: ClassVar, routes: web.RouteTableDef) -> Union[UrlDispatcher,
+                                                                                   object]:
     """Allows @routes.get("/") decorator syntax on instance methods and all of the benefits
     associated with that (regex, dynamic resources / url paths, code readability etc."""
     instance = klass()
@@ -23,7 +24,7 @@ def class_to_instance_methods(klass: ClassVar, routes: web.RouteTableDef) -> Url
         instance_method = getattr(instance, handler)
         adder = getattr(router, "add_" + http_method.lower())
         adder(path=path, handler=instance_method)
-    return router
+    return router, instance
 
 
 def get_network_type():
@@ -82,21 +83,22 @@ async def decode_request(request) -> [Dict[Any, Any]]:
 class Errors:
     """Error codes to facilitate client side troubleshooting of application-specific issues."""
     # http 400 bad requests
-    GENERIC_BAD_REQUEST = 10000
-    URL_INVALID_NETWORK_CODE = 10001
-    URL_NETWORK_MISMATCH_CODE = 10002
-    JSON_DECODE_ERROR_CODE = 10003  # message generated from exception
+    GENERIC_BAD_REQUEST = 40000
+    URL_INVALID_NETWORK_CODE = 40001
+    URL_NETWORK_MISMATCH_CODE = 40002
+    JSON_DECODE_ERROR_CODE = 40003  # message generated from exception
+    FAULT_LOAD_BEFORE_GET_CODE = 400004
 
     # http 401 unauthorized
-    AUTH_CREDENTIALS_INVALID_CODE = 10101
-    AUTH_CREDENTIALS_MISSING_CODE = 10102
-    AUTH_UNSUPPORTED_TYPE_CODE = 10103
+    AUTH_CREDENTIALS_INVALID_CODE = 40101
+    AUTH_CREDENTIALS_MISSING_CODE = 40102
+    AUTH_UNSUPPORTED_TYPE_CODE = 40103
 
     # http 402 - 102xx series
     # http 403 - 103xx series
 
     # http 404 not found
-    WALLET_NOT_FOUND_CODE = 10401
+    WALLET_NOT_FOUND_CODE = 40401
 
     AUTH_CREDENTIALS_INVALID_MESSAGE = "Authentication failed (bad credentials)."
     AUTH_CREDENTIALS_MISSING_MESSAGE = "Authentication failed (missing credentials)."
@@ -104,6 +106,21 @@ class Errors:
     URL_INVALID_NETWORK_MESSAGE = "Only {} networks are supported. You entered: '{}' network."
     URL_NETWORK_MISMATCH_MESSAGE = "Wallet is on '{}' network. You requested: '{}' network."
     WALLET_NOT_FOUND_MESSAGE = "Wallet: '{}' does not exist."
+    FAULT_LOAD_BEFORE_GET_MESSAGE = "Must load wallet on the daemon via POST request prior to 'GET'"
+
+
+class Fault:
+    """Restapi error class"""
+
+    def __init__(self, code=Errors.GENERIC_BAD_REQUEST, message='Server error'):
+        self.code = code
+        self.message = message
+
+    def error(self):
+        return {'code': self.code, 'message': self.message}
+
+    def __repr__(self):
+        return '<Fault {0}: {1}>'.format(self.code, self.message)
 
 
 class BaseAiohttpServer:
@@ -127,7 +144,7 @@ class BaseAiohttpServer:
         self.logger.debug("stopped.")
 
     async def start(self):
-        self.runner = web.AppRunner(self.app)
+        self.runner = web.AppRunner(self.app, access_log=None)
         await self.runner.setup()
         site = web.TCPSite(self.runner, self.host, self.port)
         await site.start()
@@ -214,8 +231,9 @@ class AiohttpServer(BaseAiohttpServer):
         while True:
             await asyncio.sleep(0.5)
 
-    def register_routes(self, endpoints_class: ClassVar):
-        transformed_router = class_to_instance_methods(klass=endpoints_class,
-                                                       routes=endpoints_class.routes)
+    def register_routes(self, endpoints_class: ClassVar) -> Tuple[UrlDispatcher, object]:
+        transformed_router, instance = class_to_instance_methods(klass=endpoints_class,
+                                                                 routes=endpoints_class.routes)
         for resource in transformed_router.resources():
             self.app.router.register_resource(resource)
+        return transformed_router, instance
