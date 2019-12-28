@@ -21,7 +21,7 @@
 # ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
-
+import asyncio
 from collections import defaultdict
 from contextlib import suppress
 from enum import IntEnum
@@ -654,7 +654,7 @@ class SVSession(RPCSession):
             server.state.banner = _require_string(batch.results[0])
             server.state.donation_address = _require_string(batch.results[1])
             server.state.peers = self._parse_peers_subscribe(batch.results[2])
-            self._network.trigger_callback('banner')
+            await self._network.trigger_callback('banner')
         except AssertionError as e:
             raise DisconnectSessionError(f'main server requests bad batch response: {e}')
 
@@ -930,7 +930,7 @@ class Network:
 
         # Callbacks and their lock
         self.callbacks = defaultdict(list)
-        self.lock = threading.Lock()
+        self.lock = asyncio.Lock()
 
         dir_path = app_state.config.file_path('certs')
         if not os.path.exists(dir_path):
@@ -981,7 +981,7 @@ class Network:
         server = self.main_server if n == 0 else None
         while True:
             if server is self.main_server:
-                self.trigger_callback('status')
+                await self.trigger_callback('status')
             else:
                 server = await self._random_server(self.main_server.protocol)
 
@@ -1054,8 +1054,8 @@ class Network:
                             f'above height {above_height:,d}')
                 await self.wallet_jobs.put(('undo_verifications', above_height))
             main_chain = new_main_chain
-            self.trigger_callback('updated')
-            self.trigger_callback('main_chain', main_chain, new_main_chain)
+            await self.trigger_callback('updated')
+            await self.trigger_callback('main_chain', main_chain, new_main_chain)
 
     async def _set_main_server(self, server, reason):
         '''Set the main server to something new.'''
@@ -1073,7 +1073,7 @@ class Network:
             if reason == SwitchReason.user_set:
                 old_main_session.server.retry_delay = 0
             await old_main_session.close()
-        self.trigger_callback('status')
+        await self.trigger_callback('status')
 
     def _read_config(self):
         # Remove obsolete key
@@ -1131,7 +1131,7 @@ class Network:
                     logger.error(f'fetching transaction {tx_hash}: {e}')
                 else:
                     wallet.add_transaction(tx_hash, tx, TxFlags.StateCleared | TxFlags.HasByteData)
-                    self.trigger_callback('new_transaction', tx, wallet)
+                    await self.trigger_callback('new_transaction', tx, wallet)
         return had_timeout
 
     def _available_servers(self, protocol):
@@ -1282,9 +1282,9 @@ class Network:
         self.sessions.append(session)
         self.sessions_changed_event.set()
         self.sessions_changed_event.clear()
-        self.trigger_callback('sessions')
+        await self.trigger_callback('sessions')
         if session.server is self.main_server:
-            self.trigger_callback('status')
+            await self.trigger_callback('status')
             return True
         return False
 
@@ -1293,8 +1293,8 @@ class Network:
         self.sessions_changed_event.set()
         self.sessions_changed_event.clear()
         if session.server is self.main_server:
-            self.trigger_callback('status')
-        self.trigger_callback('sessions')
+            await self.trigger_callback('status')
+        await self.trigger_callback('sessions')
 
     #
     # External API
@@ -1328,20 +1328,36 @@ class Network:
     def remove_wallet(self, wallet):
         app_state.async_.spawn(self.wallet_jobs.put, ('remove', wallet))
 
-    def register_callback(self, callback, events):
-        with self.lock:
+    def register_callback_async(self, callback, event):
+        """helper function for synchronous threads to register their callbacks"""
+        _future = app_state.async_.spawn(
+            self.register_callback, callback, event)
+
+    def unregister_callback_async(self, callback):
+        """helper function for synchronous threads to unregister their callbacks"""
+        _future = app_state.async_.spawn(
+            self.unregister_callback, callback)
+
+    def trigger_callback_async(self, event, *args):
+        _future = app_state.async_.spawn(
+            self.trigger_callback, event, *args)
+
+    async def register_callback(self, callback, events):
+        async with self.lock:
             for event in events:
                 self.callbacks[event].append(callback)
 
-    def unregister_callback(self, callback):
-        with self.lock:
+    async def unregister_callback(self, callback):
+        async with self.lock:
             for callbacks in self.callbacks.values():
                 if callback in callbacks:
                     callbacks.remove(callback)
 
-    def trigger_callback(self, event, *args):
-        with self.lock:
+    async def trigger_callback(self, event, *args):
+        async with self.lock:
             callbacks = self.callbacks[event][:]
+        # callback functions must be thread-safe and should avoid threading.Lock type locks
+        # otherwise the asyncio event loop could block here.
         [callback(event, *args) for callback in callbacks]
 
     def chain(self):

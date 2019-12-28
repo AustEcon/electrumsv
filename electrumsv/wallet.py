@@ -322,7 +322,7 @@ class Abstract_Wallet:
         self._synchronized_event.set()
         self.logger.debug('synchronized.')
         if self.network:
-            self.network.trigger_callback('updated')
+            await self.network.trigger_callback('updated')
 
     def synchronize(self):
         app_state.async_.spawn_and_wait(self._trigger_synchronization)
@@ -589,7 +589,7 @@ class Abstract_Wallet:
 
         height, conf, timestamp = self.get_tx_height(tx_hash)
         self.logger.debug("add_verified_tx %d %d %d", height, conf, timestamp)
-        self.network.trigger_callback('verified', tx_hash, height, conf, timestamp)
+        self.network.trigger_callback_async('verified', tx_hash, height, conf, timestamp)
 
         addresses = [ address_from_string(entry.address_string)
             for entry in self.get_txins(tx_hash) ]
@@ -889,7 +889,7 @@ class Abstract_Wallet:
             self._update_transaction_xputs(tx_hash, tx)
             self.logger.debug("adding tx data %s (flags: %s)", tx_hash, TxFlags.to_repr(flag))
             self._datastore.tx.add_transaction(tx, flag)
-        self.network.trigger_callback('transaction_added', self, tx_hash)
+        self.network.trigger_callback_async('transaction_added', self, tx_hash)
 
     def set_transaction_state(self, tx_hash: str, flags: TxFlags) -> bool:
         """ raises UnknownTransactionException """
@@ -898,7 +898,7 @@ class Abstract_Wallet:
                 raise UnknownTransactionException(f"tx {tx_hash} unknown")
             existing_flags = self._datastore.tx.get_cached_entry(tx_hash).flags
             updated_flags = self._datastore.tx.update_flags(tx_hash, flags)
-        self.network.trigger_callback('transaction_state_change',
+        self.network.trigger_callback_async('transaction_state_change',
             self, tx_hash, existing_flags, updated_flags)
 
     def apply_transactions_xputs(self, tx_hash: str, tx: Transaction) -> None:
@@ -955,7 +955,7 @@ class Abstract_Wallet:
             self._datastore.txout.add_entries(txouts)
 
         if len(affected_addresses):
-            self.network.trigger_callback('on_addresses_updated', self, affected_addresses)
+            self.network.trigger_callback_async('on_addresses_updated', self, affected_addresses)
 
     def delete_transaction(self, tx_hash: str) -> None:
         with self.transaction_lock:
@@ -964,7 +964,7 @@ class Abstract_Wallet:
             self.logger.debug("deleting tx from cache and datastore: %s", tx_hash)
             self._datastore.tx.delete(tx_hash)
 
-        self.network.trigger_callback('transaction_deleted', self, tx_hash)
+        self.network.trigger_callback_async('transaction_deleted', self, tx_hash)
 
     # Used by ImportedWalletBase
     def _remove_transaction(self, tx_hash: str) -> None:
@@ -1610,7 +1610,7 @@ class Abstract_Wallet:
             # Ensures addresses show in address list
             if self.network:
                 # There is no unique id for the child wallet, so we just pass the wallet for now.
-                self.network.trigger_callback('on_addresses_created', self, addresses,
+                self.network.trigger_callback_async('on_addresses_created', self, addresses,
                     for_change)
 
     async def new_addresses(self) -> List[Address]:

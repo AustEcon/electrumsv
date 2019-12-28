@@ -316,11 +316,11 @@ class FxTask:
                 self.fetch_history = False
                 await self.exchange.get_historical_rates(self.ccy, self.cache_dir)
                 if self.network:
-                    self.network.trigger_callback('on_history')
+                    await self.network.trigger_callback('on_history')
 
             await self.exchange.update(self.ccy)
             if self.network:
-                self.network.trigger_callback('on_quotes')
+                await self.network.trigger_callback('on_quotes')
 
     def is_enabled(self):
         return bool(self.config.get('use_exchange_rate'))

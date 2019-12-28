@@ -59,7 +59,7 @@ class NetworkDialog(QDialog):
         vbox.addLayout(self.nlayout.layout())
         vbox.addLayout(Buttons(CloseButton(self)))
         self.network_updated_signal.connect(self.on_update)
-        network.register_callback(self.on_network, ['updated', 'sessions'])
+        network.register_callback_async(self.on_network, ['updated', 'sessions'])
 
     def on_network(self, event, *args):
         ''' This may run in network thread '''

@@ -63,8 +63,7 @@ class CoinSplittingTab(QWidget):
         self.receiving_address = self.get_wallet().get_unused_address()
         self.split_stage = STAGE_PREPARING
         self.new_transaction_cv = threading.Condition()
-
-        window.network.register_callback(self._on_network_event, ['new_transaction'])
+        window.network.register_callback_async(self._on_network_event, ['new_transaction'])
         self.waiting_dialog = SplitWaitingDialog(window, self, self._split_prepare_task,
             on_done=self._on_split_prepare_done, on_cancel=self._on_split_abort)
 
@@ -179,8 +178,8 @@ class CoinSplittingTab(QWidget):
 
     def _cleanup_tx_created(self):
         window = self.window()
-        window.network.unregister_callback(self._on_network_event)
 
+        window.network.unregister_callback_async(self._on_network_event)
         # This may have already been done, given that we want our split to consider the dust
         # usabel.
         wallet = self.get_wallet()

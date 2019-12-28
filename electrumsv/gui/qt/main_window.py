@@ -235,18 +235,19 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             # window from being GC-ed when closed, callbacks should be
             # methods of this class only, and specifically not be
             # partials, lambdas or methods of subobjects.  Hence...
-            self.network.register_callback(self.on_network, interests)
+            self.network.register_callback_async(self.on_network, interests)
+
             # set initial message
             if self.network.main_server:
                 self.console.showMessage(self.network.main_server.state.banner)
-            self.network.register_callback(self.on_quotes, ['on_quotes'])
-            self.network.register_callback(self._on_history, ['on_history'])
-            self.network.register_callback(self._on_addresses_updated, ['on_addresses_updated'])
-            self.network.register_callback(self._on_addresses_created, ['on_addresses_created'])
-            self.network.register_callback(self._on_transaction_state_change,
-                ['transaction_state_change'])
-            self.network.register_callback(self._on_transaction_added, ['transaction_added'])
-            self.network.register_callback(self._on_transaction_deleted, ['transaction_deleted'])
+            self.network.register_callback_async(self.on_quotes, ['on_quotes'])
+            self.network.register_callback_async(self._on_history, ['on_history'])
+            self.network.register_callback_async(self._on_addresses_updated, ['on_addresses_updated'])
+            self.network.register_callback_async(self._on_addresses_created, ['on_addresses_created'])
+            self.network.register_callback_async(self._on_transaction_state_change,
+                                          ['transaction_state_change'])
+            self.network.register_callback_async(self._on_transaction_added, ['transaction_added'])
+            self.network.register_callback_async(self._on_transaction_deleted, ['transaction_deleted'])
             self.new_fx_quotes_signal.connect(self.on_fx_quotes)
             self.new_fx_history_signal.connect(self.on_fx_history)
 
@@ -2655,7 +2656,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
 
     def clean_up(self):
         if self.network:
-            self.network.unregister_callback(self.on_network)
+            self.network.unregister_callback_async(self.on_network)
 
         if self.tx_notify_timer:
             self.tx_notify_timer.stop()
