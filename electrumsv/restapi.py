@@ -68,14 +68,15 @@ async def decode_request(request) -> [Dict[Any, Any]]:
     """Request validation"""
     body = await request.content.read()
     if body == b"":
-        return {}
+        error = {'code': Errors.EMPTY_REQUEST_BODY_CODE,
+                 'message': Errors.EMPTY_REQUEST_BODY_MESSAGE}
+        return error
     try:
         request_body = json.loads(body.decode('utf-8'))
     except JSONDecodeError as e:
-        fault_message = str(e)
         # caller needs to check for 'code' key indicating an error occured
         error = {'code' : Errors.JSON_DECODE_ERROR_CODE,
-                 'message': fault_message}
+                 'message': str(e)}
         return error
     return request_body
 
@@ -88,6 +89,7 @@ class Errors:
     URL_NETWORK_MISMATCH_CODE = 40002
     JSON_DECODE_ERROR_CODE = 40003  # message generated from exception
     FAULT_LOAD_BEFORE_GET_CODE = 400004
+    EMPTY_REQUEST_BODY_CODE = 40005
 
     # http 401 unauthorized
     AUTH_CREDENTIALS_INVALID_CODE = 40101
@@ -107,6 +109,7 @@ class Errors:
     URL_NETWORK_MISMATCH_MESSAGE = "Wallet is on '{}' network. You requested: '{}' network."
     WALLET_NOT_FOUND_MESSAGE = "Wallet: '{}' does not exist."
     FAULT_LOAD_BEFORE_GET_MESSAGE = "Must load wallet on the daemon via POST request prior to 'GET'"
+    EMPTY_REQUEST_BODY_MESSAGE = "Request body was empty"
 
 
 class Fault:
