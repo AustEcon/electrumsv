@@ -60,6 +60,12 @@ def not_found(code: int, message: str) -> web.Response:
     return web.json_response(data=response_obj, status=404)
 
 
+def internal_server_error(code: int, message: str) -> web.Response:
+    response_obj = {'code': code,
+                    'message': message}
+    return web.json_response(data=response_obj, status=500)
+
+
 def good_response(response: Dict) -> web.Response:
     return web.Response(text=json.dumps(response, indent=2), content_type="application/json")
 
@@ -90,6 +96,7 @@ class Errors:
     JSON_DECODE_ERROR_CODE = 40003  # message generated from exception
     FAULT_LOAD_BEFORE_GET_CODE = 400004
     EMPTY_REQUEST_BODY_CODE = 40005
+    MISSING_VALUE_CODE = 40006
 
     # http 401 unauthorized
     AUTH_CREDENTIALS_INVALID_CODE = 40101
