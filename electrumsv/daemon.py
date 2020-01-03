@@ -158,6 +158,8 @@ class Daemon(DaemonThread):
         if app_state.config.get("cmd") == "daemon":
             self.init_restapi_server(config, fd)
             self.configure_restapi_server()
+        if app_state.gui_kind != "gui":
+            self.launch_restapi()
 
     def configure_restapi_server(self):
         self.rest_server.register_routes(DefaultEndpoints)
@@ -344,10 +346,6 @@ class Daemon(DaemonThread):
             self.rest_server.is_alive = True
 
     def run(self) -> None:
-        if not self.is_gui:
-            app_state.app.wait_until_started()
-            self.launch_restapi()
-
         while self.is_running():
             self.server.handle_request() if self.server else time.sleep(0.1)
         logger.warning("no longer running")

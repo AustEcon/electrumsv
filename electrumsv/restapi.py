@@ -70,7 +70,7 @@ def good_response(response: Dict) -> web.Response:
     return web.Response(text=json.dumps(response, indent=2), content_type="application/json")
 
 
-async def decode_request(request) -> [Dict[Any, Any]]:
+async def decode_request_body(request) -> [Dict[Any, Any]]:
     """Request validation"""
     body = await request.content.read()
     if body == b"":
@@ -96,18 +96,19 @@ class Errors:
     JSON_DECODE_ERROR_CODE = 40003  # message generated from exception
     FAULT_LOAD_BEFORE_GET_CODE = 400004
     EMPTY_REQUEST_BODY_CODE = 40005
-    MISSING_VALUE_CODE = 40006
 
     # http 401 unauthorized
-    AUTH_CREDENTIALS_INVALID_CODE = 40101
     AUTH_CREDENTIALS_MISSING_CODE = 40102
     AUTH_UNSUPPORTED_TYPE_CODE = 40103
 
     # http 402 - 102xx series
     # http 403 - 103xx series
+    AUTH_CREDENTIALS_INVALID_CODE = 40301
 
     # http 404 not found
     WALLET_NOT_FOUND_CODE = 40401
+    HEADER_VAR_NOT_PROVIDED_CODE = 40402
+    BODY_VAR_NOT_PROVIDED_CODE = 40403
 
     AUTH_CREDENTIALS_INVALID_MESSAGE = "Authentication failed (bad credentials)."
     AUTH_CREDENTIALS_MISSING_MESSAGE = "Authentication failed (missing credentials)."
@@ -117,6 +118,8 @@ class Errors:
     WALLET_NOT_FOUND_MESSAGE = "Wallet: '{}' does not exist."
     FAULT_LOAD_BEFORE_GET_MESSAGE = "Must load wallet on the daemon via POST request prior to 'GET'"
     EMPTY_REQUEST_BODY_MESSAGE = "Request body was empty"
+    HEADER_VAR_NOT_PROVIDED_MESSAGE = "Required header variable: {} was not provided."
+    BODY_VAR_NOT_PROVIDED_MESSAGE = "Required body variable: {} was not provided."
 
 
 class Fault(Exception):
@@ -126,11 +129,8 @@ class Fault(Exception):
         self.code = code
         self.message = message
 
-    def error(self):
-        return {'code': self.code, 'message': self.message}
-
     def __repr__(self):
-        return '<Fault {0}: {1}>'.format(self.code, self.message)
+        return "Fault(%s, '%s')" % (self.code, self.message)
 
 
 class BaseAiohttpServer:
@@ -156,7 +156,7 @@ class BaseAiohttpServer:
     async def start(self):
         self.runner = web.AppRunner(self.app, access_log=None)
         await self.runner.setup()
-        site = web.TCPSite(self.runner, self.host, self.port)
+        site = web.TCPSite(self.runner, self.host, self.port, reuse_address=True)
         await site.start()
 
     async def stop(self):
@@ -224,7 +224,7 @@ class AiohttpServer(BaseAiohttpServer):
         if not (constant_time_compare(username, self.username)
                 and constant_time_compare(password, self.password)):
             await asyncio.sleep(0.050)
-            return unauthorized(Errors.AUTH_CREDENTIALS_INVALID_CODE,
+            return forbidden(Errors.AUTH_CREDENTIALS_INVALID_CODE,
                                 Errors.AUTH_CREDENTIALS_INVALID_MESSAGE)
 
         # passed authentication

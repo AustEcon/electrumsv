@@ -58,10 +58,9 @@ class DefaultApp(object):
             time.sleep(0.5)
         self.is_running = False
 
-    @staticmethod
-    def wait_until_started():
-        while not app_state.app.is_running:
-            time.sleep(0.2)  # block the calling thread until dapp is running
+    def setup_app(self):
+        # app_state.daemon's __init__ is called after app_state.app's.
+        # Initialise things dependent upon app_state.daemon here."""
         return
 
 

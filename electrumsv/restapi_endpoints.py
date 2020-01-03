@@ -7,7 +7,7 @@ from aiohttp import web
 from electrumsv.wallet import Abstract_Wallet, ParentWallet
 from .logs import logs
 from .app_state import app_state
-from .restapi import Fault, bad_request, Errors, decode_request
+from .restapi import Fault, bad_request, Errors, decode_request_body
 
 class DefaultEndpoints:
 
@@ -27,7 +27,7 @@ class DefaultEndpoints:
         })
 
     @routes.get("/v1/{network}/ping")
-    async def rest_ping(self, request):
+    async def ping(self, request):
         return web.json_response({
             "value": "pong"
         })
