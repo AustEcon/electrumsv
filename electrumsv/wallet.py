@@ -1923,6 +1923,7 @@ class Deterministic_Wallet(Abstract_Wallet):
         return app_state.async_.spawn_and_wait(self._create_new_addresses, for_change, count)
 
     async def _create_new_addresses(self, for_change, count):
+        print("_create_new_addresses called")
         if count <= 0:
             return []
         self.logger.info(f'creating {count} new addresses')
@@ -1933,7 +1934,7 @@ class Deterministic_Wallet(Abstract_Wallet):
         with self.lock:
             chain = self.change_addresses if for_change else self.receiving_addresses
             first = len(chain)
-            addresses = await run_in_thread(derive_addresses, range(first, first + count))
+            addresses = derive_addresses(range(first, first + count))
             chain.extend(addresses)
         self._add_new_addresses(addresses, for_change)
         return addresses
@@ -2144,7 +2145,7 @@ class ParentWallet:
         return WalletData(self._db_context, self.tx_store_aeskey_bytes, wallet_id)
 
     def get_next_child_wallet_id(self) -> int:
-        return len(self._child_wallets)
+        return len(self._child_wallets)  # is this right?
 
     def get_keystore(self, keystore_usage: Dict[str, Any]) -> KeyStore:
         keystore_index = keystore_usage['index']
@@ -2200,7 +2201,7 @@ class ParentWallet:
                 child_wallets.append(child_wallet)
         return child_wallets
 
-    def get_child_wallets(self) -> Iterable[Abstract_Wallet]:
+    def get_child_wallets(self) -> List[Abstract_Wallet]:
         return self._child_wallets[:]
 
     def get_default_wallet(self) -> Abstract_Wallet:

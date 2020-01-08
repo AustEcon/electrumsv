@@ -176,7 +176,7 @@ class Daemon(DaemonThread):
 
     def init_server(self, config: SimpleConfig, fd, is_gui: bool) -> None:
         host = config.get('rpchost', '127.0.0.1')
-        port = config.get('rpcport', 0)
+        port = config.get('rpcport', 8888)
         rpc_user, rpc_password = get_rpc_credentials(config)
         try:
             server = VerifyingJSONRPCServer((host, port), logRequests=False,
@@ -267,6 +267,7 @@ class Daemon(DaemonThread):
 
     def load_wallet(self, wallet_filepath: str, password: Optional[str]) -> Optional[ParentWallet]:
         # wizard will be launched if we return
+
         if wallet_filepath in self.wallets:
             wallet = self.wallets[wallet_filepath]
             return wallet

@@ -10,6 +10,57 @@ from .util import to_bytes, to_string, constant_time_compare
 from .app_state import app_state
 
 
+class Errors:
+    """Error codes to facilitate client side troubleshooting of application-specific issues."""
+    # http 400 bad requests
+    GENERIC_BAD_REQUEST = 40000
+    URL_INVALID_NETWORK_CODE = 40001
+    URL_NETWORK_MISMATCH_CODE = 40002
+    JSON_DECODE_ERROR_CODE = 40003  # message generated from exception
+    FAULT_LOAD_BEFORE_GET_CODE = 40004
+    EMPTY_REQUEST_BODY_CODE = 40005
+    NO_COINS_CODE = 40006
+
+    # http 401 unauthorized
+    AUTH_CREDENTIALS_MISSING_CODE = 40102
+    AUTH_UNSUPPORTED_TYPE_CODE = 40103
+
+    # http 402 - 102xx series
+    # http 403 - 103xx series
+    AUTH_CREDENTIALS_INVALID_CODE = 40301
+
+    # http 404 not found
+    WALLET_NOT_FOUND_CODE = 40401
+    HEADER_VAR_NOT_PROVIDED_CODE = 40402
+    BODY_VAR_NOT_PROVIDED_CODE = 40403
+
+    # http 500 internal server error
+    GENERIC_INTERNAL_SERVER_ERROR = 50000
+
+    AUTH_CREDENTIALS_INVALID_MESSAGE = "Authentication failed (bad credentials)."
+    AUTH_CREDENTIALS_MISSING_MESSAGE = "Authentication failed (missing credentials)."
+    AUTH_UNSUPPORTED_TYPE_MESSAGE = "Authentication failed (only basic auth is supported)."
+    URL_INVALID_NETWORK_MESSAGE = "Only {} networks are supported. You entered: '{}' network."
+    URL_NETWORK_MISMATCH_MESSAGE = "Wallet is on '{}' network. You requested: '{}' network."
+    WALLET_NOT_FOUND_MESSAGE = "Wallet: '{}' does not exist."
+    FAULT_LOAD_BEFORE_GET_MESSAGE = "Must load wallet on the daemon via POST request prior to 'GET'"
+    EMPTY_REQUEST_BODY_MESSAGE = "Request body was empty"
+    HEADER_VAR_NOT_PROVIDED_MESSAGE = "Required header variable: '{}' was not provided."
+    BODY_VAR_NOT_PROVIDED_MESSAGE = "Required body variable: '{}' was not provided."
+    NO_COINS_MESSAGE = "Wallet has no coins"
+
+
+class Fault(Exception):
+    """Restapi error class"""
+
+    def __init__(self, code=Errors.GENERIC_BAD_REQUEST, message='Server error'):
+        self.code = code
+        self.message = message
+
+    def __repr__(self):
+        return "Fault(%s, '%s')" % (self.code, self.message)
+
+
 def class_to_instance_methods(klass: ClassVar, routes: web.RouteTableDef) -> Union[UrlDispatcher,
                                                                                    object]:
     """Allows @routes.get("/") decorator syntax on instance methods and all of the benefits
@@ -70,67 +121,17 @@ def good_response(response: Dict) -> web.Response:
     return web.Response(text=json.dumps(response, indent=2), content_type="application/json")
 
 
-async def decode_request_body(request) -> [Dict[Any, Any]]:
+async def decode_request_body(request) -> Union[Dict[Any, Any], Fault]:
     """Request validation"""
-    body = await request.content.read()
+    body = await request.read()
     if body == b"":
-        error = {'code': Errors.EMPTY_REQUEST_BODY_CODE,
-                 'message': Errors.EMPTY_REQUEST_BODY_MESSAGE}
-        return error
+        return Fault(Errors.EMPTY_REQUEST_BODY_CODE, Errors.EMPTY_REQUEST_BODY_MESSAGE)
     try:
         request_body = json.loads(body.decode('utf-8'))
     except JSONDecodeError as e:
-        # caller needs to check for 'code' key indicating an error occured
-        error = {'code' : Errors.JSON_DECODE_ERROR_CODE,
-                 'message': str(e)}
-        return error
+        message = "JSONDecodeError " + str(e)
+        return Fault(Errors.JSON_DECODE_ERROR_CODE, message)
     return request_body
-
-
-class Errors:
-    """Error codes to facilitate client side troubleshooting of application-specific issues."""
-    # http 400 bad requests
-    GENERIC_BAD_REQUEST = 40000
-    URL_INVALID_NETWORK_CODE = 40001
-    URL_NETWORK_MISMATCH_CODE = 40002
-    JSON_DECODE_ERROR_CODE = 40003  # message generated from exception
-    FAULT_LOAD_BEFORE_GET_CODE = 400004
-    EMPTY_REQUEST_BODY_CODE = 40005
-
-    # http 401 unauthorized
-    AUTH_CREDENTIALS_MISSING_CODE = 40102
-    AUTH_UNSUPPORTED_TYPE_CODE = 40103
-
-    # http 402 - 102xx series
-    # http 403 - 103xx series
-    AUTH_CREDENTIALS_INVALID_CODE = 40301
-
-    # http 404 not found
-    WALLET_NOT_FOUND_CODE = 40401
-    HEADER_VAR_NOT_PROVIDED_CODE = 40402
-    BODY_VAR_NOT_PROVIDED_CODE = 40403
-
-    AUTH_CREDENTIALS_INVALID_MESSAGE = "Authentication failed (bad credentials)."
-    AUTH_CREDENTIALS_MISSING_MESSAGE = "Authentication failed (missing credentials)."
-    AUTH_UNSUPPORTED_TYPE_MESSAGE = "Authentication failed (only basic auth is supported)."
-    URL_INVALID_NETWORK_MESSAGE = "Only {} networks are supported. You entered: '{}' network."
-    URL_NETWORK_MISMATCH_MESSAGE = "Wallet is on '{}' network. You requested: '{}' network."
-    WALLET_NOT_FOUND_MESSAGE = "Wallet: '{}' does not exist."
-    FAULT_LOAD_BEFORE_GET_MESSAGE = "Must load wallet on the daemon via POST request prior to 'GET'"
-    EMPTY_REQUEST_BODY_MESSAGE = "Request body was empty"
-    HEADER_VAR_NOT_PROVIDED_MESSAGE = "Required header variable: {} was not provided."
-    BODY_VAR_NOT_PROVIDED_MESSAGE = "Required body variable: {} was not provided."
-
-
-class Fault(Exception):
-    """Restapi error class"""
-
-    def __init__(self, code=Errors.GENERIC_BAD_REQUEST, message='Server error'):
-        self.code = code
-        self.message = message
-
-    def __repr__(self):
-        return "Fault(%s, '%s')" % (self.code, self.message)
 
 
 class BaseAiohttpServer:

@@ -1045,6 +1045,7 @@ class WalletStorage:
     def __init__(self, path: str, manual_upgrades: bool=False,
             data: Optional[Dict[str, Any]]=None,
             storage_kind: StorageKind=StorageKind.UNKNOWN) -> None:
+
         logger.debug("wallet path '%s'", path)
         dirname = os.path.dirname(path)
         if not os.path.exists(dirname):
