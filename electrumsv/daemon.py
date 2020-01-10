@@ -342,7 +342,7 @@ class Daemon(DaemonThread):
         self.logger.debug("stopped.")
 
     def launch_restapi(self):
-        if not self.rest_server.is_alive:
+        if not self.is_gui and not self.rest_server.is_alive:
             self._restapi_future = app_state.async_.spawn(self.rest_server.launcher)
             self.rest_server.is_alive = True
 

@@ -123,8 +123,9 @@ def good_response(response: Dict) -> web.Response:
 
 async def decode_request_body(request) -> Union[Dict[Any, Any], Fault]:
     """Request validation"""
+
     body = await request.read()
-    if body == b"":
+    if body == b"" or body == b"{}":
         return Fault(Errors.EMPTY_REQUEST_BODY_CODE, Errors.EMPTY_REQUEST_BODY_MESSAGE)
     try:
         request_body = json.loads(body.decode('utf-8'))
